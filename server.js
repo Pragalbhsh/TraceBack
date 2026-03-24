@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
-mongoose.connect("mongodb+srv://tracebackuser:traceback123@cluster0.5vaf3gr.mongodb.net/?appName=Cluster0")
+require('dotenv').config();
+mongoose.connect(process.env.MONGO_URI)
     .then(()=>{
         console.log("connected to mongodb");
     })
@@ -8,11 +9,18 @@ mongoose.connect("mongodb+srv://tracebackuser:traceback123@cluster0.5vaf3gr.mong
     });
 
     const itemsSchema = new mongoose.Schema({
+        type: {
+            type : String,
+            enum : ['lost' , 'found']
+        },
         name:String,
         description :String,
         location:String,
         contact :String,
-        date:Date
+        date:{
+            type:Date,
+            default:Date.now
+        }
     });
     const item = mongoose.model("items" , itemsSchema);
 
@@ -27,24 +35,42 @@ app.get('/', (req,res) => {
     res.send("traceback backend runnning");
 });
 
-let items  = []; // empty array
 
 // add new items
 app.post("/items", async(req,res) => { 
     try{
    const newItem = new item(req.body);
    const savedItem = await newItem.save(); // save data to mongodb
-   res.json(savedItem);
+   const matches =  await item.find({
+    type : newItem.type === "lost" ? "found" : "lost",
+    location : newItem.location
+   })
+   res.json({
+    savedItem,
+    possibleMatches: matches
+   });
     }catch(err){
         console.log(err);
         res.status(500).send("error saving item");
     }
 });
 
-// see all items
+
+// see all item
 app.get("/items", async (req,res) => {
     try{
         const items = await item.find();
+        res.json(items);
+    }catch(err){
+        res.status(500).send("error fetching items");
+    }
+});
+
+
+// see all items according to type
+app.get("/items/type/:type", async (req,res) => {
+    try{
+        const items = await item.find({type:req.params.type});
         res.json(items);
     }catch(err){
         console.log(err);
@@ -54,7 +80,6 @@ app.get("/items", async (req,res) => {
 
 
 // see a single item
-
 app.get("/items/:id", async (req,res) => {
     try{
         const founditem = await item.findById(req.params.id);
@@ -66,28 +91,26 @@ app.get("/items/:id", async (req,res) => {
 });
 
 //update items
-app.put('/items/:id' , (req,res) => {
-const id = parseInt(req.params.id) // getting item id from the url
-const index = items.findIndex(items => items.id === id); // check index of the item in our array
-if(index === -1){
-    return res.status(404).send("item not found");
-}
-items[index] = { ...items[index] , ...req.body} // update the item as requested
-res.send("item updated");
+app.put('/items/:id' , async(req,res) => {
+    try{
+        const updatedItem = await item.findByIdAndUpdate(req.params.id, req.body, {new:true});
+        res.json(updatedItem);
+    }catch(err){
+        console.log(err);
+        res.status(500).send("error updating item");
+    }
 });
-
 
 // delete items
-app.delete('/items/:id', (req,res) =>{
-const id = parseInt(req.params.id);
-const lengthBefore = items.length;
-items = items.filter(i=>i.id !== id); // filter fucntion doesnt harm the items that dont have the given id and deletes the item with the given id
-if(lengthBefore === items.length){
-    return res.status(400).send("item not found");
-}
-res.send("item deleted");
+app.delete('/items/:id', async (req,res) =>{
+    try{
+        await item.findByIdAndDelete(req.params.id);
+        res.send("item deleted");
+    }catch(err){
+        console.log(err);
+        res.status(500).send("error deleting item");
+    }
 });
-
 app.listen(3000, () => {
     console.log("server running on port 3000");
 });
