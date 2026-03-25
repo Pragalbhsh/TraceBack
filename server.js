@@ -1,3 +1,22 @@
+const cloudinary = require("cloudinary").v2;
+const {CloudinaryStorage}= require("multer-storage-cloudinary");
+const multer = require ("multer");
+
+cloudinary.config({
+    cloud_name : process.env.CLOUD_NAME,
+    api_key : process.env.API_KEY,
+    api_secret : process.env.API_SECRET
+});
+
+const storage = new CloudinaryStorage({
+    cloudinary:cloudinary,
+    params: {
+        folder: "traceback",
+        allowed_formats: ["jpg", "png", "jpeg"]
+    }
+});
+const upload = multer({ storage : storage });
+
 const mongoose = require('mongoose');
 require('dotenv').config();
 mongoose.connect(process.env.MONGO_URI)
@@ -20,7 +39,8 @@ mongoose.connect(process.env.MONGO_URI)
         date:{
             type:Date,
             default:Date.now
-        }
+        },
+        image: String
     });
     const item = mongoose.model("items" , itemsSchema);
 
@@ -37,13 +57,22 @@ app.get('/', (req,res) => {
 
 
 // add new items
-app.post("/items", async(req,res) => { 
+app.post("/items", upload.single("image"), async (req, res) =>{ 
+    console.log("route hit");
+console.log("file:", req.file);
+console.log("body:", req.body);
     try{
-   const newItem = new item(req.body);
+        const newItem = new item({
+            ...req.body,
+            image: req.file ? req.file.path : null 
+        });
    const savedItem = await newItem.save(); // save data to mongodb
    const matches =  await item.find({
     type : newItem.type === "lost" ? "found" : "lost",
-    location : newItem.location
+    location : newItem.location,
+    name: newItem.name
+    ? { $regex: newItem.name, $options: "i" }
+    : undefined
    })
    res.json({
     savedItem,
