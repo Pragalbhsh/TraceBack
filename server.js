@@ -1,7 +1,10 @@
+require('dotenv').config();
 const cloudinary = require("cloudinary").v2;
 const {CloudinaryStorage}= require("multer-storage-cloudinary");
 const multer = require ("multer");
 
+
+// cloudinary implementation
 cloudinary.config({
     cloud_name : process.env.CLOUD_NAME,
     api_key : process.env.API_KEY,
@@ -17,8 +20,11 @@ const storage = new CloudinaryStorage({
 });
 const upload = multer({ storage : storage });
 
+
+
+// mongodb schema
 const mongoose = require('mongoose');
-require('dotenv').config();
+console.log("MONGO_URI:", process.env.MONGO_URI);
 mongoose.connect(process.env.MONGO_URI)
     .then(()=>{
         console.log("connected to mongodb");
@@ -40,12 +46,12 @@ mongoose.connect(process.env.MONGO_URI)
             type:Date,
             default:Date.now
         },
-        image: String
+        image:String
     });
     const item = mongoose.model("items" , itemsSchema);
 
 
-
+// crud operations + matching logic
 const express = require('express');
 const app = express();
 app.use(express.json());
@@ -66,20 +72,32 @@ console.log("body:", req.body);
             ...req.body,
             image: req.file ? req.file.path : null 
         });
+
+// matching logic
    const savedItem = await newItem.save(); // save data to mongodb
-   const matches =  await item.find({
-    type : newItem.type === "lost" ? "found" : "lost",
-    location : newItem.location,
-    name: newItem.name
-    ? { $regex: newItem.name, $options: "i" }
-    : undefined
-   })
-   res.json({
-    savedItem,
-    possibleMatches: matches
+   const allItems = await item.find({
+    type : newItem.type === "lost" ? "found" : "lost"
    });
+
+
+    const scoredMatches = allItems.map(i => {
+    let score = 0;
+// if new items location is found the same in any of the already existing items :
+    if(i.location === newItem.location) score += 5;
+    return { ...i.toObject() ,score };
+   });
+
+    scoredMatches.sort((a,b) => b.score-a.score);
+    res.json({
+      savedItem,
+      possibleMatches :scoredMatches
+    });
+
     }catch(err){
-        console.log(err);
+        console.error("ERR message:", err?.message);
+        console.error("ERR name:", err?.name);
+        console.error("ERR stack:", err?.stack);
+        console.error("ERR raw:", err);
         res.status(500).send("error saving item");
     }
 });
@@ -140,6 +158,14 @@ app.delete('/items/:id', async (req,res) =>{
         res.status(500).send("error deleting item");
     }
 });
+app.use((err, req, res, next) => {
+    console.error("GLOBAL ERR message:", err?.message);
+    console.error("GLOBAL ERR name:", err?.name);
+    console.error("GLOBAL ERR stack:", err?.stack);
+    console.error("GLOBAL ERR raw:", err);
+    res.status(500).json({ error: err?.message || "Upload failed" });
+  });
+  
 app.listen(3000, () => {
     console.log("server running on port 3000");
 });
