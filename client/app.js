@@ -3,6 +3,11 @@ const filters = document.querySelector(".filters");
 
 let allItems = []; // store all items globally so filters can use them
 
+const reportBtn = document.getElementById("report-btn");
+reportBtn.addEventListener("click", () => {
+    window.location.href = "post.html";
+});
+
 // fetch all items from backend
 fetch("http://localhost:3000/items")
 .then(res => res.json())
