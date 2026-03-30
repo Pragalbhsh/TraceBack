@@ -1,43 +1,237 @@
+/* ===== BASE ===== */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Segoe UI', sans-serif;
+    background-color: #f0f2f5;
+    color: #333;
+}
+
+/* ===== NAV ===== */
+nav {
+    background: #1a1a2e;
+    color: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 32px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+}
+
+nav h1 {
+    font-size: 24px;
+    letter-spacing: 2px;
+    color: #e94560;
+}
+
+nav button {
+    background: #e94560;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    transition: background 0.2s;
+}
+
+nav button:hover {
+    background: #c73652;
+}
+
+/* ===== MAIN ===== */
+main {
+    max-width: 960px;
+    margin: 40px auto;
+    padding: 0 24px;
+}
+
+main h2 {
+    font-size: 22px;
+    margin-bottom: 20px;
+    color: #1a1a2e;
+}
+
+/* ===== FILTERS ===== */
+.filters {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 28px;
+}
+
+.filters button {
+    padding: 8px 20px;
+    border-radius: 20px;
+    border: 2px solid #1a1a2e;
+    background: white;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    transition: all 0.2s;
+}
+
+.filters button:hover {
+    background: #1a1a2e;
+    color: white;
+}
+
+/* ===== ITEMS GRID ===== */
+.items-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+/* ===== ITEM CARD ===== */
+.item {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    width: 260px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-top: 4px solid #e94560;
+}
+
+.item:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+}
+
+.item h3 {
+    margin: 8px 0 6px;
+    font-size: 17px;
+    color: #1a1a2e;
+}
+
+.item p {
+    margin: 4px 0;
+    color: #666;
+    font-size: 13px;
+}
+
+.desc {
+    color: #999 !important;
+    margin-top: 8px !important;
+}
+
+/* ===== BADGES ===== */
 .badge {
     display: inline-block;
-    padding: 3px 10px;
+    padding: 3px 12px;
     border-radius: 20px;
     font-size: 11px;
     font-weight: bold;
     color: white;
-    margin-bottom: 8px;
+    letter-spacing: 1px;
 }
 
-.badge.lost { background: #ef4444; }
+.badge.lost { background: #e94560; }
 .badge.found { background: #22c55e; }
 
-.item h3 { margin: 6px 0 4px; font-size: 16px; }
-.item p { margin: 4px 0; color: #666; font-size: 13px; }
-.desc { color: #999 !important; }
-
-.item:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 8px 20px rgba(0,0,0,0.15);
-    transition: all 0.2s;
-}
+/* ===== ITEM DETAIL ===== */
 #item-detail {
-    max-width: 600px;
+    max-width: 620px;
     margin: 40px auto;
     background: white;
-    padding: 30px;
-    border-radius: 12px;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+    padding: 32px;
+    border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+}
+
+#item-detail h2 {
+    font-size: 26px;
+    color: #1a1a2e;
+    margin: 12px 0 8px;
+}
+
+#item-detail p {
+    color: #555;
+    margin: 6px 0;
+    line-height: 1.6;
 }
 
 #item-detail img {
     width: 100%;
-    border-radius: 8px;
-    margin-top: 16px;
+    border-radius: 10px;
+    margin-top: 20px;
+}
+
+#item-detail button {
+    background: none;
+    border: none;
+    color: #e94560;
+    cursor: pointer;
+    font-size: 14px;
+    margin-bottom: 16px;
+    font-weight: bold;
 }
 
 .contact-box {
     background: #f0fdf4;
+    border: 1px solid #22c55e;
     padding: 16px;
+    border-radius: 10px;
+    margin-top: 20px;
+}
+
+.contact-box h4 {
+    color: #22c55e;
+    margin-bottom: 6px;
+}
+
+/* ===== POST FORM ===== */
+.post-form {
+    max-width: 560px;
+    margin: 40px auto;
+    background: white;
+    padding: 32px;
+    border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+}
+
+.post-form h2 {
+    color: #1a1a2e;
+    margin-bottom: 24px;
+    font-size: 22px;
+}
+
+.post-form select,
+.post-form input {
+    width: 100%;
+    padding: 12px;
+    margin-bottom: 16px;
+    border: 1px solid #ddd;
     border-radius: 8px;
-    margin-top: 16px;
+    font-size: 14px;
+    outline: none;
+    transition: border 0.2s;
+}
+
+.post-form select:focus,
+.post-form input:focus {
+    border-color: #e94560;
+}
+
+.post-form button {
+    width: 100%;
+    padding: 14px;
+    background: #e94560;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.post-form button:hover {
+    background: #c73652;
 }
