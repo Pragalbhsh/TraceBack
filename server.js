@@ -7,7 +7,9 @@ const itemRoutes = require('./routes/items');  // 👈 bring in our routes
 
 const app = express();
 app.use(express.json());
-app.use(cors());  
+app.use(cors({
+    origin: 'https://bejewelled-licorice-d543ef.netlify.app'
+}));
 
 // Connect to MongoDB 
 mongoose.connect(process.env.MONGO_URI)
