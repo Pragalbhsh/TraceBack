@@ -1,0 +1,9 @@
+# Netlify: set "Base directory" to traceback-client and add VITE_API_URL in Site settings → Environment variables.
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
