@@ -3,11 +3,15 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { api, ApiError, imageUrl } from '../lib/api';
 import { CATEGORIES } from '../lib/constants';
 import { toDateInput } from '../lib/format';
+import { celebrate } from '../lib/celebrate';
+import { scrollBehavior, useReplay } from '../lib/motion';
 import { useAuth } from '../context/AuthContext';
-import { Alert, EmptyState, MatchGrid, Spinner } from '../components/ui';
+import { useToast } from '../components/Toast';
+import { Alert, CheckDraw, EmptyState, MatchGrid, Spinner } from '../components/ui';
 import useTitle from '../lib/useTitle';
 
 const MAX_MB = 5;
+const FIELD_ORDER = ['name', 'category', 'description', 'location', 'date', 'contact', 'image'];
 
 function Field({ label, hint, error, children, id }) {
     return (
@@ -19,8 +23,40 @@ function Field({ label, hint, error, children, id }) {
                     {error}
                 </p>
             ) : (
-                hint && <p className="field__hint">{hint}</p>
+                hint && (
+                    // Keyed so the hint cross-fades when it changes (e.g. lost -> found).
+                    <p className="field__hint swap" key={hint}>
+                        {hint}
+                    </p>
+                )
             )}
+        </div>
+    );
+}
+
+/** Fills up as useful details are added, and says what to add next. */
+function PostStrength({ checks }) {
+    const done = checks.filter((c) => c.done).length;
+    const level = done <= 2 ? 1 : done <= 4 ? 2 : done === 5 ? 3 : 4;
+    const label = ['', 'Just started', 'Good start', 'Great', 'Excellent'][level];
+    const next = checks.find((c) => !c.done);
+    return (
+        <div className="strength-meter" aria-live="polite">
+            <div className="strength-meter__top">
+                <strong>Post strength: {label}</strong>
+                <span className="muted">
+                    {done}/{checks.length}
+                </span>
+            </div>
+            <div className="strength-meter__bar">
+                <div
+                    className={`strength-meter__fill strength-meter__fill--${level}`}
+                    style={{ transform: `scaleX(${Math.max(0.04, done / checks.length)})` }}
+                />
+            </div>
+            <p className="strength-meter__tip swap" key={next?.tip || 'done'}>
+                {next ? `Next: ${next.tip}` : '🎯 Perfect - this post gives matching everything it needs.'}
+            </p>
         </div>
     );
 }
@@ -31,7 +67,9 @@ export default function ReportItem() {
     const [params] = useSearchParams();
     const { user } = useAuth();
     const navigate = useNavigate();
+    const toast = useToast();
     const fileInput = useRef(null);
+    const [formRef, shake] = useReplay('is-shaking');
     useTitle(editing ? 'Edit post' : 'Report an item');
 
     const [form, setForm] = useState({
@@ -47,6 +85,7 @@ export default function ReportItem() {
     const [preview, setPreview] = useState(null);
     const [existingImage, setExistingImage] = useState(null);
     const [removeImage, setRemoveImage] = useState(false);
+    const [dragging, setDragging] = useState(false);
     const [errors, setErrors] = useState({});
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
@@ -79,7 +118,7 @@ export default function ReportItem() {
     useEffect(() => {
         if (!file) {
             setPreview(null);
-            return;
+            return undefined;
         }
         const url = URL.createObjectURL(file);
         setPreview(url);
@@ -89,21 +128,17 @@ export default function ReportItem() {
     const set = (key) => (e) => {
         setForm((f) => ({ ...f, [key]: e.target.value }));
         setErrors((er) => ({ ...er, [key]: undefined }));
+        setError(''); // the summary message is stale as soon as they start fixing things
     };
 
-    const pickFile = (e) => {
-        const f = e.target.files?.[0];
+    const pickFile = (f, input) => {
         if (!f) return;
-        if (!['image/jpeg', 'image/png', 'image/webp'].includes(f.type)) {
-            setErrors((er) => ({ ...er, image: 'Please choose a JPG, PNG or WebP photo.' }));
-            e.target.value = '';
-            return;
-        }
-        if (f.size > MAX_MB * 1024 * 1024) {
-            setErrors((er) => ({ ...er, image: `That photo is too large (max ${MAX_MB} MB).` }));
-            e.target.value = '';
-            return;
-        }
+        const reject = (message) => {
+            setErrors((er) => ({ ...er, image: message }));
+            if (input) input.value = '';
+        };
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(f.type)) return reject('Please choose a JPG, PNG or WebP photo.');
+        if (f.size > MAX_MB * 1024 * 1024) return reject(`That photo is too large (max ${MAX_MB} MB).`);
         setErrors((er) => ({ ...er, image: undefined }));
         setFile(f);
         setRemoveImage(false);
@@ -114,12 +149,27 @@ export default function ReportItem() {
         if (fileInput.current) fileInput.current.value = '';
     };
 
+    const showErrors = (fieldErrors, message) => {
+        setErrors(fieldErrors);
+        setError(message);
+        shake();
+        const first = FIELD_ORDER.find((f) => fieldErrors[f]);
+        if (first) document.getElementById(first)?.focus({ preventScroll: false });
+    };
+
     const submit = async (e) => {
         e.preventDefault();
         setError('');
+
+        // Quick checks first, so people don't wait for the server to hear about an empty field.
+        const missing = {};
+        if (form.name.trim().length < 2) missing.name = 'Give the item a short name (at least 2 characters)';
+        if (form.location.trim().length < 2) missing.location = 'Where was it lost or found?';
+        if (form.contact.trim().length < 3) missing.contact = 'Add a way for people to reach you';
+        if (Object.keys(missing).length) return showErrors(missing, Object.values(missing)[0]);
+
         setErrors({});
         setSubmitting(true);
-
         const body = new FormData();
         const values = {
             ...form,
@@ -134,14 +184,14 @@ export default function ReportItem() {
         try {
             if (editing) {
                 await api(`/items/${id}`, { method: 'PUT', body });
+                toast('Changes saved.', { kind: 'success' });
                 navigate(`/item/${id}`);
             } else {
                 setResult(await api('/items', { method: 'POST', body }));
-                window.scrollTo({ top: 0, behavior: 'smooth' });
+                window.scrollTo({ top: 0, behavior: scrollBehavior() });
             }
         } catch (err) {
-            if (err instanceof ApiError && Object.keys(err.fieldErrors).length) setErrors(err.fieldErrors);
-            setError(err.message);
+            showErrors(err instanceof ApiError ? err.fieldErrors : {}, err.message);
         } finally {
             setSubmitting(false);
         }
@@ -152,17 +202,27 @@ export default function ReportItem() {
 
     const lost = form.type === 'lost';
     const shownImage = preview || (!removeImage && existingImage ? imageUrl(existingImage) : null);
+    const checks = [
+        { done: form.name.trim().length >= 2, tip: 'give it a short name.' },
+        { done: Boolean(form.category), tip: 'pick a category - it is the strongest matching signal.' },
+        { done: form.description.trim().length >= 20, tip: 'describe the colour, brand or any marks - details make matches.' },
+        { done: form.location.trim().length >= 2, tip: 'say where it happened.' },
+        { done: form.contact.trim().length >= 3, tip: 'add how people can reach you.' },
+        { done: Boolean(shownImage), tip: 'add a photo - posts with photos get recognised much faster.' },
+    ];
 
     return (
         <div className="container section narrow">
-            <h1>{editing ? 'Edit your post' : 'Report an item'}</h1>
+            <h1 className="rise">{editing ? 'Edit your post' : 'Report an item'}</h1>
             {!editing && (
-                <p className="muted">
+                <p className="muted rise" style={{ '--i': 1 }}>
                     The more detail you give, the better the matching works. It takes about a minute.
                 </p>
             )}
 
-            <form className="form card" onSubmit={submit} noValidate>
+            {/* Entrance lives on the wrapper so the shake animation on the form doesn't replay it. */}
+            <div className="rise" style={{ '--i': 2 }}>
+            <form ref={formRef} className="form card" onSubmit={submit} noValidate>
                 <fieldset className="type-picker">
                     <legend>What happened?</legend>
                     {[
@@ -178,9 +238,16 @@ export default function ReportItem() {
                                 <strong>{o.title}</strong>
                                 <small>{o.text}</small>
                             </span>
+                            {form.type === o.value && (
+                                <span className="type-option__check" aria-hidden="true">
+                                    ✓
+                                </span>
+                            )}
                         </label>
                     ))}
                 </fieldset>
+
+                <PostStrength checks={checks} />
 
                 <Field id="name" label="What is it? *" error={errors.name} hint="A short name, e.g. “Blue Nike backpack” or “iPhone 13”">
                     <input
@@ -232,6 +299,7 @@ export default function ReportItem() {
                             maxLength={150}
                             required
                             aria-invalid={Boolean(errors.location)}
+                            aria-describedby={errors.location ? 'location-error' : undefined}
                         />
                     </Field>
                     <Field id="date" label={lost ? 'When did you lose it?' : 'When did you find it?'} error={errors.date}>
@@ -252,10 +320,11 @@ export default function ReportItem() {
                         maxLength={150}
                         required
                         aria-invalid={Boolean(errors.contact)}
+                        aria-describedby={errors.contact ? 'contact-error' : undefined}
                     />
                 </Field>
 
-                <Field id="image" label="Photo (optional)" error={errors.image} hint={`JPG, PNG or WebP, up to ${MAX_MB} MB`}>
+                <Field id="image" label="Photo (optional)" error={errors.image}>
                     {shownImage ? (
                         <div className="upload-preview">
                             <img src={shownImage} alt="Selected photo preview" />
@@ -268,13 +337,32 @@ export default function ReportItem() {
                             </button>
                         </div>
                     ) : (
-                        <input
-                            id="image"
-                            ref={fileInput}
-                            type="file"
-                            accept="image/jpeg,image/png,image/webp"
-                            onChange={pickFile}
-                        />
+                        <div
+                            className={`dropzone ${dragging ? 'is-dragging' : ''}`}
+                            onDragOver={(e) => {
+                                e.preventDefault();
+                                setDragging(true);
+                            }}
+                            onDragLeave={() => setDragging(false)}
+                            onDrop={(e) => {
+                                e.preventDefault();
+                                setDragging(false);
+                                pickFile(e.dataTransfer.files?.[0]);
+                            }}
+                        >
+                            <input
+                                id="image"
+                                ref={fileInput}
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp"
+                                onChange={(e) => pickFile(e.target.files?.[0], e.target)}
+                            />
+                            <span className="dropzone__icon" aria-hidden="true">
+                                📷
+                            </span>
+                            <strong>{dragging ? 'Drop it here' : 'Add a photo'}</strong>
+                            <span className="muted small">Drag it here or tap to choose · JPG, PNG or WebP up to {MAX_MB} MB</span>
+                        </div>
                     )}
                 </Field>
 
@@ -284,11 +372,13 @@ export default function ReportItem() {
                     <Link to={editing ? `/item/${id}` : '/'} className="btn btn--ghost">
                         Cancel
                     </Link>
-                    <button className={`btn btn--${lost ? 'lost' : 'found'}`} disabled={submitting}>
+                    <button className={`btn btn--${lost ? 'lost' : 'found'} btn--shine`} disabled={submitting}>
+                        {submitting && <span className="btn__spinner" aria-hidden="true" />}
                         {submitting ? 'Saving...' : editing ? 'Save changes' : lost ? 'Post lost item' : 'Post found item'}
                     </button>
                 </div>
             </form>
+            </div>
         </div>
     );
 }
@@ -296,21 +386,30 @@ export default function ReportItem() {
 function Submitted({ result }) {
     const { savedItem, possibleMatches } = result;
     const lost = savedItem.type === 'lost';
+    const found = possibleMatches.length;
+
+    // A match is one of the two moments worth celebrating (DESIGN.md).
+    useEffect(() => {
+        if (!found) return undefined;
+        const t = setTimeout(() => celebrate(), 500);
+        return () => clearTimeout(t);
+    }, [found]);
+
     return (
         <div className="container section">
             <div className="success card">
-                <div className="success__icon" aria-hidden="true">
-                    ✅
-                </div>
-                <h1>Your post is live!</h1>
-                <p>
-                    {possibleMatches.length
-                        ? `Good news - we found ${possibleMatches.length} possible ${possibleMatches.length === 1 ? 'match' : 'matches'}. Have a look below.`
+                <CheckDraw />
+                <h1 className="rise" style={{ '--i': 2 }}>
+                    Your post is live!
+                </h1>
+                <p className="rise" style={{ '--i': 3 }}>
+                    {found
+                        ? `Good news - we found ${found} possible ${found === 1 ? 'match' : 'matches'}. Have a look below.`
                         : lost
                           ? "No matches yet, but don't lose hope - many items are handed in a day or two later. We'll email you when a likely match is posted."
                           : "No one has reported this missing yet. We'll email you when someone posts a lost item that looks like it."}
                 </p>
-                <div className="row row--center">
+                <div className="row row--center rise" style={{ '--i': 4 }}>
                     <Link className="btn btn--primary" to={`/item/${savedItem._id}`}>
                         View your post
                     </Link>
@@ -318,12 +417,16 @@ function Submitted({ result }) {
                         My posts
                     </Link>
                 </div>
-                <p className="muted small">Tip: share your post in local WhatsApp / campus groups to reach more people.</p>
+                <p className="muted small rise" style={{ '--i': 5 }}>
+                    Tip: share your post in local WhatsApp / campus groups to reach more people.
+                </p>
             </div>
 
-            {possibleMatches.length > 0 ? (
+            {found > 0 ? (
                 <section className="section">
-                    <h2>{lost ? 'Found items that might be yours' : 'People who might be looking for this'}</h2>
+                    <h2 className="rise" style={{ '--i': 5 }}>
+                        {lost ? 'Found items that might be yours' : 'People who might be looking for this'}
+                    </h2>
                     <MatchGrid matches={possibleMatches} />
                 </section>
             ) : (

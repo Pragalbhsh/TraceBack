@@ -7,11 +7,12 @@ export function TypeBadge({ type }) {
     return <span className={`badge badge--${type}`}>{type === 'lost' ? 'Lost' : 'Found'}</span>;
 }
 
-export default function ItemCard({ item, match }) {
+/** `index` drives the staggered entrance (see DESIGN.md: Results grid). */
+export default function ItemCard({ item, match, index = 0 }) {
     const cat = categoryInfo(item.category);
     const resolved = item.status === 'resolved';
     return (
-        <article className={`card item-card ${resolved ? 'is-resolved' : ''}`}>
+        <article className={`card item-card ${resolved ? 'is-resolved' : ''}`} style={{ '--i': index }}>
             <Link to={`/item/${item._id}`} className="item-card__link">
                 <div className="item-card__media">
                     <ItemImage item={item} />
@@ -32,6 +33,19 @@ export default function ItemCard({ item, match }) {
                     {match && (
                         <div className="match-info">
                             <span className={`strength strength--${match.strength}`}>{STRENGTH_LABEL[match.strength]}</span>
+                            <div
+                                className="meter"
+                                role="meter"
+                                aria-label="Match strength"
+                                aria-valuemin={0}
+                                aria-valuemax={100}
+                                aria-valuenow={Math.min(100, match.score)}
+                            >
+                                <span
+                                    className={`meter__fill meter__fill--${match.strength}`}
+                                    style={{ width: `${Math.max(8, Math.min(100, match.score))}%` }}
+                                />
+                            </div>
                             <ul className="reasons">
                                 {match.reasons.map((r) => (
                                     <li key={r}>{r}</li>

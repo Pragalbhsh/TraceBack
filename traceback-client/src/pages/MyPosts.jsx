@@ -1,21 +1,39 @@
 import { useEffect, useState } from 'react';
-import { Link, useLocation } from 'react-router';
+import { Link } from 'react-router';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { STRENGTH_LABEL } from '../lib/constants';
 import { timeAgo } from '../lib/format';
+import { celebrate } from '../lib/celebrate';
 import ItemImage from '../components/ItemImage';
 import { TypeBadge } from '../components/ItemCard';
-import { Alert, EmptyState, Spinner } from '../components/ui';
+import { useToast } from '../components/Toast';
+import { Alert, EmptyState, Switch } from '../components/ui';
 import useTitle from '../lib/useTitle';
+
+function RowSkeleton() {
+    return (
+        <ul className="my-list" aria-hidden="true">
+            {[0, 1, 2].map((i) => (
+                <li key={i} className="my-row card" style={{ '--i': i }}>
+                    <div className="my-row__thumb skeleton" />
+                    <div className="my-row__body">
+                        <div className="skeleton skeleton--line w-50" />
+                        <div className="skeleton skeleton--line w-70" />
+                        <div className="skeleton skeleton--line w-30" />
+                    </div>
+                </li>
+            ))}
+        </ul>
+    );
+}
 
 export default function MyPosts() {
     useTitle('My posts');
     const { user, updateMe } = useAuth();
-    const location = useLocation();
+    const toast = useToast();
     const [items, setItems] = useState(null);
     const [error, setError] = useState('');
-    const [notice, setNotice] = useState(location.state?.notice || '');
     const [alerts, setAlerts] = useState(user?.emailAlerts ?? true);
 
     useEffect(() => {
@@ -29,20 +47,21 @@ export default function MyPosts() {
         setAlerts(emailAlerts); // update straight away, undo if saving fails
         try {
             await updateMe({ emailAlerts });
-            setNotice(emailAlerts ? "Match emails turned on. We'll let you know about likely matches." : 'Match emails turned off.');
+            toast(emailAlerts ? "Match emails turned on. We'll let you know about likely matches." : 'Match emails turned off.');
         } catch (err) {
             setAlerts(!emailAlerts);
-            setError(err.message);
+            toast(err.message, { kind: 'error' });
         }
     };
 
-    const markReunited = async (item) => {
+    const markReunited = async (item, button) => {
         try {
             const updated = await api(`/items/${item._id}`, { method: 'PATCH', body: { status: 'resolved' } });
+            celebrate({ from: button });
             setItems((list) => list.map((i) => (i._id === item._id ? { ...i, ...updated, matchCount: 0 } : i)));
-            setNotice(`🎉 "${item.name}" marked as reunited. Thank you!`);
+            toast(`🎉 "${item.name}" marked as reunited. Thank you!`, { kind: 'success', duration: 5000 });
         } catch (err) {
-            setError(err.message);
+            toast(err.message, { kind: 'error' });
         }
     };
 
@@ -53,27 +72,29 @@ export default function MyPosts() {
         <div className="container section">
             <div className="section__head">
                 <div>
-                    <h1>My posts</h1>
-                    <p className="muted">Hi {user?.name?.split(' ')[0]}! Here's everything you've posted.</p>
+                    <h1 className="rise">My posts</h1>
+                    <p className="muted rise" style={{ '--i': 1 }}>
+                        Hi {user?.name?.split(' ')[0]}! Here's everything you've posted.
+                    </p>
                 </div>
-                <Link to="/report" className="btn btn--primary">
+                <Link to="/report" className="btn btn--primary btn--shine rise" style={{ '--i': 1 }}>
                     + Report item
                 </Link>
             </div>
 
-            <label className="toggle card">
-                <input type="checkbox" checked={alerts} onChange={toggleAlerts} />
-                <span>
-                    <strong>Email me about possible matches</strong>
-                    <small className="muted">Sent to {user?.email} when someone posts an item that looks like one of yours.</small>
-                </span>
-            </label>
+            <div className="rise" style={{ '--i': 2 }}>
+                <Switch
+                    checked={alerts}
+                    onChange={toggleAlerts}
+                    title="Email me about possible matches"
+                    description={`Sent to ${user?.email} when someone posts an item that looks like one of yours.`}
+                />
+            </div>
 
-            <Alert kind="info">{notice}</Alert>
             <Alert>{error}</Alert>
 
             {items === null && !error ? (
-                <Spinner />
+                <RowSkeleton />
             ) : items?.length === 0 ? (
                 <EmptyState icon="📭" title="You haven't posted anything yet">
                     <Link className="btn btn--primary" to="/report">
@@ -84,14 +105,14 @@ export default function MyPosts() {
                 <>
                     {open.length > 0 && <h2 className="list-heading">Open ({open.length})</h2>}
                     <ul className="my-list">
-                        {open.map((item) => (
-                            <MyRow key={item._id} item={item} onReunited={() => markReunited(item)} />
+                        {open.map((item, i) => (
+                            <MyRow key={item._id} item={item} index={i} onReunited={(btn) => markReunited(item, btn)} />
                         ))}
                     </ul>
                     {done.length > 0 && <h2 className="list-heading">Reunited 🎉 ({done.length})</h2>}
                     <ul className="my-list">
-                        {done.map((item) => (
-                            <MyRow key={item._id} item={item} />
+                        {done.map((item, i) => (
+                            <MyRow key={item._id} item={item} index={i} />
                         ))}
                     </ul>
                 </>
@@ -100,9 +121,9 @@ export default function MyPosts() {
     );
 }
 
-function MyRow({ item, onReunited }) {
+function MyRow({ item, index, onReunited }) {
     return (
-        <li className="my-row card">
+        <li className="my-row card" style={{ '--i': index }}>
             <Link to={`/item/${item._id}`} className="my-row__thumb" aria-hidden="true" tabIndex={-1}>
                 <ItemImage item={item} />
             </Link>
@@ -118,7 +139,7 @@ function MyRow({ item, onReunited }) {
                 </p>
                 {item.status !== 'resolved' &&
                     (item.matchCount > 0 ? (
-                        <Link to={`/item/${item._id}#matches-heading`} className={`strength strength--${item.bestMatch}`}>
+                        <Link to={`/item/${item._id}#matches-heading`} className={`strength strength--${item.bestMatch} chip-pulse`}>
                             {item.matchCount} possible {item.matchCount === 1 ? 'match' : 'matches'} · best: {STRENGTH_LABEL[item.bestMatch]}
                         </Link>
                     ) : (
@@ -127,7 +148,7 @@ function MyRow({ item, onReunited }) {
             </div>
             {onReunited && (
                 <div className="my-row__actions">
-                    <button className="btn btn--found btn--sm" onClick={onReunited}>
+                    <button className="btn btn--found btn--sm" onClick={(e) => onReunited(e.currentTarget)}>
                         ✅ Reunited
                     </button>
                     <Link className="btn btn--ghost btn--sm" to={`/item/${item._id}/edit`}>

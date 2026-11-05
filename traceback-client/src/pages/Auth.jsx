@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { ApiError } from '../lib/api';
 import { Alert } from '../components/ui';
+import { useToast } from '../components/Toast';
 import useTitle from '../lib/useTitle';
 
 function useRedirectBack() {
@@ -28,9 +29,29 @@ function Reason({ from }) {
     return null;
 }
 
+function PasswordInput({ id = 'password', ...props }) {
+    const [show, setShow] = useState(false);
+    return (
+        <div className="password-field">
+            <input id={id} type={show ? 'text' : 'password'} {...props} />
+            <button
+                type="button"
+                className="password-field__toggle"
+                aria-label={show ? 'Hide password' : 'Show password'}
+                aria-pressed={show}
+                aria-controls={id}
+                onClick={() => setShow((v) => !v)}
+            >
+                {show ? 'Hide' : 'Show'}
+            </button>
+        </div>
+    );
+}
+
 export function Login() {
     useTitle('Log in');
     const { login } = useAuth();
+    const toast = useToast();
     const { from, go, state } = useRedirectBack();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -42,7 +63,8 @@ export function Login() {
         setBusy(true);
         setError('');
         try {
-            await login(email, password);
+            const user = await login(email, password);
+            toast(`Welcome back, ${user.name.split(' ')[0]}! 👋`, { kind: 'success' });
             go();
         } catch (err) {
             setError(err.message);
@@ -61,9 +83,7 @@ export function Login() {
                 </div>
                 <div className="field">
                     <label htmlFor="password">Password</label>
-                    <input
-                        id="password"
-                        type="password"
+                    <PasswordInput
                         autoComplete="current-password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
@@ -72,6 +92,7 @@ export function Login() {
                 </div>
                 <Alert>{error}</Alert>
                 <button className="btn btn--primary btn--block" disabled={busy}>
+                    {busy && <span className="btn__spinner" aria-hidden="true" />}
                     {busy ? 'Logging in...' : 'Log in'}
                 </button>
                 <p className="muted center">
@@ -88,6 +109,7 @@ export function Login() {
 export function Register() {
     useTitle('Create account');
     const { register } = useAuth();
+    const toast = useToast();
     const { from, go, state } = useRedirectBack();
     const [form, setForm] = useState({ name: '', email: '', password: '' });
     const [errors, setErrors] = useState({});
@@ -101,7 +123,8 @@ export function Register() {
         setError('');
         setErrors({});
         try {
-            await register(form.name, form.email, form.password);
+            const user = await register(form.name, form.email, form.password);
+            toast(`Welcome to TraceBack, ${user.name.split(' ')[0]}! 🎉`, { kind: 'success' });
             go();
         } catch (err) {
             if (err instanceof ApiError) setErrors(err.fieldErrors);
@@ -131,9 +154,7 @@ export function Register() {
                 </div>
                 <div className={`field ${errors.password ? 'has-error' : ''}`}>
                     <label htmlFor="password">Password</label>
-                    <input
-                        id="password"
-                        type="password"
+                    <PasswordInput
                         autoComplete="new-password"
                         minLength={8}
                         value={form.password}
@@ -148,6 +169,7 @@ export function Register() {
                 </div>
                 <Alert>{Object.keys(errors).length ? '' : error}</Alert>
                 <button className="btn btn--primary btn--block" disabled={busy}>
+                    {busy && <span className="btn__spinner" aria-hidden="true" />}
                     {busy ? 'Creating account...' : 'Create account'}
                 </button>
                 <p className="muted center">

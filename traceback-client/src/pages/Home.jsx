@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { api } from '../lib/api';
 import { CATEGORIES } from '../lib/constants';
+import { useCountUp } from '../lib/motion';
 import ItemCard from '../components/ItemCard';
-import { Alert, EmptyState, Spinner } from '../components/ui';
+import Segmented from '../components/Segmented';
+import { Alert, EmptyState, Reveal, SkeletonGrid } from '../components/ui';
 import useTitle from '../lib/useTitle';
 
 const TYPE_TABS = [
@@ -11,6 +13,16 @@ const TYPE_TABS = [
     { value: 'lost', label: 'Lost' },
     { value: 'found', label: 'Found' },
 ];
+
+function Stat({ label, value, good }) {
+    const n = useCountUp(value);
+    return (
+        <div className={good ? 'stats__good' : undefined}>
+            <dt>{label}</dt>
+            <dd aria-label={String(value)}>{n}</dd>
+        </div>
+    );
+}
 
 export default function Home() {
     useTitle();
@@ -20,10 +32,12 @@ export default function Home() {
     const q = params.get('q') || '';
     const status = params.get('status') || 'open';
     const page = Number(params.get('page')) || 1;
+    const queryKey = `${type}|${category}|${q}|${status}|${page}`;
 
     const [search, setSearch] = useState(q);
     const [stats, setStats] = useState(null);
-    const [state, setState] = useState({ loading: true, items: [], total: 0, pages: 1, error: '' });
+    // `initial` shows skeletons the first time; after that old results stay (dimmed) while new ones load.
+    const [state, setState] = useState({ initial: true, refreshing: true, items: [], total: 0, pages: 1, error: '', key: '' });
 
     const update = (changes, { replace = false } = {}) => {
         const next = new URLSearchParams(params);
@@ -43,7 +57,7 @@ export default function Home() {
 
     // Search as you type, but wait until typing pauses.
     useEffect(() => {
-        if (search.trim() === q) return;
+        if (search.trim() === q) return undefined;
         const t = setTimeout(() => update({ q: search.trim() }, { replace: true }), 350);
         return () => clearTimeout(t);
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -51,54 +65,57 @@ export default function Home() {
 
     useEffect(() => {
         const ctrl = new AbortController();
-        setState((s) => ({ ...s, loading: true, error: '' }));
+        setState((s) => ({ ...s, refreshing: true, error: '' }));
         api('/items', {
             query: { type, category, q, status: status === 'open' ? undefined : status, page, limit: 24 },
             signal: ctrl.signal,
             withMeta: true,
         })
-            .then(({ data, total, pages }) => setState({ loading: false, items: data, total, pages, error: '' }))
-            .catch((err) => err.name !== 'AbortError' && setState((s) => ({ ...s, loading: false, error: err.message })));
+            .then(({ data, total, pages }) =>
+                setState({ initial: false, refreshing: false, items: data, total, pages, error: '', key: queryKey })
+            )
+            .catch(
+                (err) =>
+                    err.name !== 'AbortError' &&
+                    setState((s) => ({ ...s, initial: false, refreshing: false, error: err.message }))
+            );
         return () => ctrl.abort();
-    }, [type, category, q, status, page]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [queryKey]);
 
     const filtersActive = type || category || q || status !== 'open';
 
     return (
         <>
             <section className="hero">
+                <div className="hero__blob hero__blob--a" aria-hidden="true" />
+                <div className="hero__blob hero__blob--b" aria-hidden="true" />
                 <div className="container hero__inner">
-                    <h1>
-                        Lost something? Found something?
-                        <br />
-                        <span className="accent">Let's get it back home.</span>
+                    <h1 className="hero__title">
+                        <span className="rise" style={{ '--i': 0 }}>
+                            Lost something? Found something?
+                        </span>
+                        <span className="rise accent" style={{ '--i': 1 }}>
+                            Let's get it back home.
+                        </span>
                     </h1>
-                    <p className="hero__lead">
+                    <p className="hero__lead rise" style={{ '--i': 2 }}>
                         Post what you lost or found. TraceBack automatically matches lost items with found ones and lets you
                         know when there's a likely match.
                     </p>
-                    <div className="hero__actions">
-                        <Link to="/report?type=lost" className="btn btn--lost btn--lg">
+                    <div className="hero__actions rise" style={{ '--i': 3 }}>
+                        <Link to="/report?type=lost" className="btn btn--lost btn--lg btn--shine">
                             😟 I lost something
                         </Link>
-                        <Link to="/report?type=found" className="btn btn--found btn--lg">
+                        <Link to="/report?type=found" className="btn btn--found btn--lg btn--shine">
                             🙌 I found something
                         </Link>
                     </div>
                     {stats && (
-                        <dl className="stats" aria-label="TraceBack in numbers">
-                            <div>
-                                <dt>Looking for owners</dt>
-                                <dd>{stats.found}</dd>
-                            </div>
-                            <div>
-                                <dt>Still missing</dt>
-                                <dd>{stats.lost}</dd>
-                            </div>
-                            <div className="stats__good">
-                                <dt>Reunited</dt>
-                                <dd>{stats.reunited}</dd>
-                            </div>
+                        <dl className="stats rise" style={{ '--i': 4 }} aria-label="TraceBack in numbers">
+                            <Stat label="Looking for owners" value={stats.found} />
+                            <Stat label="Still missing" value={stats.lost} />
+                            <Stat label="Reunited" value={stats.reunited} good />
                         </dl>
                     )}
                 </div>
@@ -107,7 +124,7 @@ export default function Home() {
             <section className="container section" aria-labelledby="browse-heading">
                 <div className="section__head">
                     <h2 id="browse-heading">Browse items</h2>
-                    {!state.loading && (
+                    {!state.initial && (
                         <span className="muted" aria-live="polite">
                             {state.total} {state.total === 1 ? 'item' : 'items'}
                         </span>
@@ -124,19 +141,13 @@ export default function Home() {
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                         />
-                    </label>
-                    <div className="tabs" role="group" aria-label="Lost or found">
-                        {TYPE_TABS.map((t) => (
-                            <button
-                                key={t.value}
-                                className={`tab ${type === t.value ? 'is-active' : ''}`}
-                                aria-pressed={type === t.value}
-                                onClick={() => update({ type: t.value })}
-                            >
-                                {t.label}
+                        {search && (
+                            <button type="button" className="search__clear" aria-label="Clear search" onClick={() => setSearch('')}>
+                                ×
                             </button>
-                        ))}
-                    </div>
+                        )}
+                    </label>
+                    <Segmented label="Lost or found" options={TYPE_TABS} value={type} onChange={(v) => update({ type: v })} />
                     <label className="select">
                         <span className="sr-only">Category</span>
                         <select value={category} onChange={(e) => update({ category: e.target.value })}>
@@ -160,64 +171,73 @@ export default function Home() {
 
                 <Alert>{state.error}</Alert>
 
-                {state.loading ? (
-                    <Spinner label="Loading items..." />
-                ) : state.items.length === 0 && !state.error ? (
-                    <EmptyState title={filtersActive ? 'Nothing matches those filters' : 'No items yet'}>
-                        {filtersActive ? (
-                            <button className="btn btn--ghost" onClick={() => setParams({})}>
-                                Clear filters
-                            </button>
-                        ) : (
-                            <p>
-                                Be the first - <Link to="/report">report a lost or found item</Link>.
-                            </p>
-                        )}
-                    </EmptyState>
-                ) : (
-                    <div className="grid">
-                        {state.items.map((item) => (
-                            <ItemCard key={item._id} item={item} />
-                        ))}
-                    </div>
-                )}
+                <div className={`results ${state.refreshing && !state.initial ? 'is-refreshing' : ''}`} aria-busy={state.refreshing}>
+                    {state.refreshing && !state.initial && <div className="loading-bar" aria-hidden="true" />}
+                    {state.initial ? (
+                        <SkeletonGrid />
+                    ) : state.items.length === 0 && !state.error ? (
+                        <EmptyState title={filtersActive ? 'Nothing matches those filters' : 'No items yet'}>
+                            {filtersActive ? (
+                                <button className="btn btn--ghost" onClick={() => setParams({})}>
+                                    Clear filters
+                                </button>
+                            ) : (
+                                <p>
+                                    Be the first - <Link to="/report">report a lost or found item</Link>.
+                                </p>
+                            )}
+                        </EmptyState>
+                    ) : (
+                        // Keyed by the query so every new result set staggers in.
+                        <div className="grid" key={state.key}>
+                            {state.items.map((item, i) => (
+                                <ItemCard key={item._id} item={item} index={i} />
+                            ))}
+                        </div>
+                    )}
+                </div>
 
                 {state.pages > 1 && (
                     <nav className="pager" aria-label="Pages">
-                        <button className="btn btn--ghost" disabled={page <= 1} onClick={() => update({ page: page - 1 })}>
-                            ← Newer
+                        <button
+                            className="btn btn--ghost btn--icon-nudge"
+                            disabled={page <= 1}
+                            onClick={() => update({ page: page - 1 })}
+                        >
+                            <span className="nudge nudge--left">←</span> Newer
                         </button>
                         <span className="muted">
                             Page {page} of {state.pages}
                         </span>
                         <button
-                            className="btn btn--ghost"
+                            className="btn btn--ghost btn--icon-nudge"
                             disabled={page >= state.pages}
                             onClick={() => update({ page: page + 1 })}
                         >
-                            Older →
+                            Older <span className="nudge nudge--right">→</span>
                         </button>
                     </nav>
                 )}
             </section>
 
-            <section className="container section how">
+            <Reveal className="container section how">
                 <h2>How it works</h2>
                 <ol className="steps">
-                    <li>
-                        <strong>Post it</strong>
-                        <span>Describe what you lost or found, where and when. A photo helps a lot.</span>
-                    </li>
-                    <li>
-                        <strong>Get matched</strong>
-                        <span>We compare it with every open post and show you the most likely matches - and email you about new ones.</span>
-                    </li>
-                    <li>
-                        <strong>Reunite</strong>
-                        <span>Contact each other, check it's really theirs, meet somewhere safe, then mark it as reunited.</span>
-                    </li>
+                    {[
+                        ['Post it', 'Describe what you lost or found, where and when. A photo helps a lot.'],
+                        [
+                            'Get matched',
+                            'We compare it with every open post and show you the most likely matches - and email you about new ones.',
+                        ],
+                        ['Reunite', "Contact each other, check it's really theirs, meet somewhere safe, then mark it as reunited."],
+                    ].map(([title, text], i) => (
+                        <li key={title} className="reveal-item" style={{ '--i': i }}>
+                            <strong>{title}</strong>
+                            <span>{text}</span>
+                        </li>
+                    ))}
                 </ol>
-            </section>
+            </Reveal>
         </>
     );
 }

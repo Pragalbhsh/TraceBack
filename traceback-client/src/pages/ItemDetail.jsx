@@ -3,21 +3,46 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { api } from '../lib/api';
 import { categoryInfo } from '../lib/constants';
 import { contactHref, formatDate, timeAgo } from '../lib/format';
+import { celebrate } from '../lib/celebrate';
 import ItemImage from '../components/ItemImage';
 import { TypeBadge } from '../components/ItemCard';
-import { Alert, EmptyState, MatchGrid, SafetyTips, Spinner } from '../components/ui';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
+import { Alert, DetailSkeleton, EmptyState, MatchGrid, Reveal, SafetyTips, SkeletonGrid } from '../components/ui';
 import useTitle from '../lib/useTitle';
+
+/** Button that briefly shows "✓ Done" after its action succeeds. */
+function FeedbackButton({ onClick, children, done = '✓ Copied', className = 'btn btn--ghost' }) {
+    const [ok, setOk] = useState(false);
+    useEffect(() => {
+        if (!ok) return undefined;
+        const t = setTimeout(() => setOk(false), 1600);
+        return () => clearTimeout(t);
+    }, [ok]);
+    return (
+        <button
+            type="button"
+            className={className}
+            onClick={async () => {
+                if ((await onClick()) !== false) setOk(true);
+            }}
+        >
+            {ok ? done : children}
+        </button>
+    );
+}
 
 export default function ItemDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
     const location = useLocation();
+    const toast = useToast();
     const [item, setItem] = useState(null);
     const [matches, setMatches] = useState(null);
     const [error, setError] = useState('');
     const [notFound, setNotFound] = useState(false);
     const [busy, setBusy] = useState(false);
-    const [notice, setNotice] = useState('');
+    const [confirmDelete, setConfirmDelete] = useState(false);
     useTitle(item?.name);
 
     useEffect(() => {
@@ -35,7 +60,7 @@ export default function ItemDetail() {
             });
         api(`/items/${id}/matches`, { signal: ctrl.signal })
             .then(setMatches)
-            .catch(() => setMatches([]));
+            .catch((err) => err.name !== 'AbortError' && setMatches([]));
         return () => ctrl.abort();
     }, [id]);
 
@@ -58,67 +83,86 @@ export default function ItemDetail() {
             </div>
         );
     }
-    if (!item) return <Spinner />;
+    if (!item) return <DetailSkeleton />;
 
     const cat = categoryInfo(item.category);
     const resolved = item.status === 'resolved';
     const href = contactHref(item.contact);
 
-    const setStatus = async (status) => {
+    const setStatus = async (status, button) => {
         setBusy(true);
         try {
             setItem(await api(`/items/${item._id}`, { method: 'PATCH', body: { status } }));
-            setNotice(status === 'resolved' ? '🎉 Wonderful! Marked as reunited. Thank you for using TraceBack.' : 'Post reopened.');
+            if (status === 'resolved') {
+                celebrate({ from: button });
+                toast('🎉 Wonderful! Marked as reunited. Thank you for using TraceBack.', { kind: 'success', duration: 5000 });
+            } else {
+                toast('Post reopened - it will show up in searches and matching again.');
+            }
         } catch (err) {
-            setNotice(err.message);
+            toast(err.message, { kind: 'error' });
         } finally {
             setBusy(false);
         }
     };
 
     const remove = async () => {
-        if (!window.confirm('Delete this post? This cannot be undone.')) return;
         setBusy(true);
         try {
             await api(`/items/${item._id}`, { method: 'DELETE' });
-            navigate('/my-posts', { state: { notice: 'Post deleted.' } });
+            toast('Post deleted.');
+            navigate('/my-posts');
         } catch (err) {
-            setNotice(err.message);
+            toast(err.message, { kind: 'error' });
             setBusy(false);
+            setConfirmDelete(false);
+        }
+    };
+
+    const copy = async (text, message) => {
+        try {
+            await navigator.clipboard.writeText(text);
+            toast(message, { kind: 'success' });
+            return true;
+        } catch {
+            toast("Couldn't copy - please select and copy it manually.", { kind: 'error' });
+            return false;
         }
     };
 
     const share = async () => {
         const url = window.location.href;
         const text = `${item.type === 'lost' ? 'Lost' : 'Found'}: ${item.name} near ${item.location}. Can you help?`;
-        try {
-            if (navigator.share) await navigator.share({ title: 'TraceBack', text, url });
-            else {
-                await navigator.clipboard.writeText(`${text} ${url}`);
-                setNotice('Link copied - share it in your group chats!');
+        if (navigator.share) {
+            try {
+                await navigator.share({ title: 'TraceBack', text, url });
+                return true;
+            } catch {
+                return false; // cancelled
             }
-        } catch {
-            /* user cancelled */
         }
+        return copy(`${text} ${url}`, 'Link copied - share it in your group chats!');
     };
 
     return (
         <div className="container section">
             <Link to="/" className="back-link">
-                ← All items
+                <span className="nudge nudge--left">←</span> All items
             </Link>
-
-            <Alert kind="info">{notice}</Alert>
 
             <div className="detail">
                 <div className="detail__media">
                     <ItemImage item={item} className="detail__image" />
                 </div>
 
-                <div className="detail__info">
+                <div className="detail__info stagger">
                     <div className="detail__badges">
                         <TypeBadge type={item.type} />
-                        {resolved && <span className="badge badge--resolved">Reunited 🎉</span>}
+                        {resolved && (
+                            <span className="badge badge--resolved" key={item.status}>
+                                Reunited 🎉
+                            </span>
+                        )}
                     </div>
                     <h1 className="detail__title">{item.name}</h1>
 
@@ -163,24 +207,15 @@ export default function ItemDetail() {
                                                 {href.startsWith('mailto') ? '✉️ Send email' : '📞 Call'}
                                             </a>
                                         )}
-                                        <button
-                                            className="btn btn--ghost"
-                                            onClick={() =>
-                                                navigator.clipboard
-                                                    ?.writeText(item.contact)
-                                                    .then(() => setNotice('Contact copied.'))
-                                            }
-                                        >
-                                            Copy
-                                        </button>
+                                        <FeedbackButton onClick={() => copy(item.contact, 'Contact copied.')}>Copy</FeedbackButton>
                                     </div>
                                 </>
                             ) : (
                                 <>
                                     <p className="muted">
-                                        To protect people's privacy, contact details are only shown to signed-in users.
+                                        🔒 To protect people's privacy, contact details are only shown to signed-in users.
                                     </p>
-                                    <Link to="/login" state={{ from: location }} className="btn btn--primary">
+                                    <Link to="/login" state={{ from: location }} className="btn btn--primary btn--shine">
                                         Log in to see contact details
                                     </Link>
                                 </>
@@ -202,14 +237,18 @@ export default function ItemDetail() {
                                         Reopen post
                                     </button>
                                 ) : (
-                                    <button className="btn btn--found" disabled={busy} onClick={() => setStatus('resolved')}>
-                                        ✅ Mark as reunited
+                                    <button
+                                        className="btn btn--found btn--shine"
+                                        disabled={busy}
+                                        onClick={(e) => setStatus('resolved', e.currentTarget)}
+                                    >
+                                        {busy ? <span className="btn__spinner" aria-hidden="true" /> : '✅'} Mark as reunited
                                     </button>
                                 )}
                                 <Link className="btn btn--ghost" to={`/item/${item._id}/edit`}>
                                     Edit
                                 </Link>
-                                <button className="btn btn--danger-ghost" disabled={busy} onClick={remove}>
+                                <button className="btn btn--danger-ghost" disabled={busy} onClick={() => setConfirmDelete(true)}>
                                     Delete
                                 </button>
                             </div>
@@ -217,9 +256,9 @@ export default function ItemDetail() {
                     )}
 
                     <div className="row">
-                        <button className="btn btn--ghost btn--sm" onClick={share}>
+                        <FeedbackButton className="btn btn--ghost btn--sm" onClick={share} done="✓ Shared">
                             🔗 Share this post
-                        </button>
+                        </FeedbackButton>
                     </div>
 
                     {!resolved && <SafetyTips type={item.type} />}
@@ -227,14 +266,14 @@ export default function ItemDetail() {
             </div>
 
             {!resolved && (
-                <section className="section" aria-labelledby="matches-heading">
+                <Reveal className="section" aria-labelledby="matches-heading">
                     <div className="section__head">
                         <h2 id="matches-heading">
                             {item.type === 'lost' ? 'Found items that might be this' : 'Lost reports that might match'}
                         </h2>
                     </div>
                     {matches === null ? (
-                        <Spinner label="Looking for matches..." />
+                        <SkeletonGrid count={4} label="Looking for matches..." />
                     ) : matches.length ? (
                         <MatchGrid matches={matches} />
                     ) : (
@@ -246,8 +285,24 @@ export default function ItemDetail() {
                             </p>
                         </EmptyState>
                     )}
-                </section>
+                </Reveal>
             )}
+
+            <ConfirmDialog
+                open={confirmDelete}
+                icon="🗑️"
+                title="Delete this post?"
+                confirmLabel="Delete post"
+                danger
+                busy={busy}
+                onConfirm={remove}
+                onCancel={() => setConfirmDelete(false)}
+            >
+                <p>
+                    "{item.name}" will be removed for everyone, along with its photo. If the item was returned, you can{' '}
+                    <strong>mark it as reunited</strong> instead - it helps others see that TraceBack works.
+                </p>
+            </ConfirmDialog>
         </div>
     );
 }

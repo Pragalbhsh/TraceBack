@@ -22,6 +22,7 @@ People post what they **lost** or **found**. TraceBack compares every new post w
 | 🛡️ **Privacy** | Contact details are only shown to signed-in users (stops bots scraping phone numbers); owner emails are never exposed |
 | 🎉 **Reunited status & stats** | Home page shows how many items are waiting and how many were reunited |
 | 📱 **Works on phones** | Responsive, accessible (keyboard, screen readers, colour contrast), share button for WhatsApp groups |
+| ✨ **Thoughtful motion** | Skeleton loading, staggered cards, sliding filter pill, match-strength meters, a "post strength" meter, drag-and-drop photos, toasts, a proper delete dialog, and confetti when a match is found or an item is reunited. Turns off for people who prefer reduced motion |
 
 ## What was fixed
 
@@ -131,6 +132,10 @@ All responses are JSON. Send `Authorization: Bearer <token>` for 🔒 routes.
 
 Errors look like `{ "error": "Where was it lost or found?", "details": [{ "field": "location", "message": "..." }] }`.
 
+## Design & motion
+
+The UI was designed first, in [`traceback-client/DESIGN.md`](traceback-client/DESIGN.md): who it's for, motion principles, timing and easing tokens, and a spec for every component. `src/motion.css` and `src/lib/motion.js` implement it with plain CSS and a few small hooks (no animation library, ~4 KB gzipped). Only `transform` and `opacity` are animated, so it stays smooth on budget phones, and everything turns instant with the OS "reduce motion" setting.
+
 ## Project structure
 
 ```
@@ -146,7 +151,7 @@ lib/serialize.js     what each viewer is allowed to see
 lib/validation.js    input validation (zod)
 lib/mailer.js        match alert emails
 tests/               jest + supertest
-traceback-client/    React frontend
+traceback-client/    React frontend (see DESIGN.md for the design & motion spec)
 ```
 
 ## How matching works
